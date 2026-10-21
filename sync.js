@@ -40,9 +40,9 @@ const Sync=(()=>{
    for(let i=0;i<rows.length;i+=200){const ch=rows.slice(i,i+200);const {error}=await sb.rpc('sync_push',{kind:k,rows:ch});if(error)throw error;
     ch.forEach(x=>{const kk=key(k,x.id);if(x.deleted)delete st.synced[kk];else st.synced[kk]=snap(x.data)})}}}
  async function run(){if(busy||!session||!navigator.onLine){status();return}busy=true;status();
-  try{await loadRole();if(st.role==='admin'||st.role==='user'){let ch=false;for(const k of KINDS)ch=await pullKind(k)||ch;if(remapped.size&&isAdmin()){remapped.forEach(id=>{const u=db.units.find(x=>x.id===id),lm=db.moves.filter(m=>m.unitId===id).sort((a,b)=>b.at.localeCompare(a.at))[0];if(u&&lm&&lm.to!==u.loc)u.loc=lm.to});remapped.clear();stamp(db)}
+  try{await loadRole();if(st.role==='admin'||st.role==='user'){let ch=false;for(const k of KINDS)ch=await pullKind(k)||ch;if(ch&&!document.querySelector('dialog[open]')&&!(document.activeElement?.matches('input,textarea,select')&&document.activeElement.closest('main,dialog')))render();if(remapped.size&&isAdmin()){remapped.forEach(id=>{const u=db.units.find(x=>x.id===id),lm=db.moves.filter(m=>m.unitId===id).sort((a,b)=>b.at.localeCompare(a.at))[0];if(u&&lm&&lm.to!==u.loc)u.loc=lm.to});remapped.clear();stamp(db)}
     await push();for(const k of KINDS)ch=await pullKind(k)||ch;
-    localStorage.setItem(KEY,JSON.stringify(db));if(ch&&!document.querySelector('dialog[open]')&&!document.activeElement?.matches('input,textarea,select'))render()}lastErr=''}
+    localStorage.setItem(KEY,JSON.stringify(db));if(ch&&!document.querySelector('dialog[open]')&&!(document.activeElement?.matches('input,textarea,select')&&document.activeElement.closest('main,dialog')))render()}lastErr=''}
   catch(e){lastErr=e.message||String(e);console.warn('sync',e)}finally{busy=false;keep();status();if(!lastErr&&session&&navigator.onLine&&pending(db)>0)setTimeout(run,300)}}
  async function loadRole(){const {data,error}=await sb.from('profiles').select('role,name,email').eq('id',session.user.id).maybeSingle();if(error)throw error;
   const r=data?data.role:'pending';if(r!==st.role){st.role=r;keep();applyRole()}st.name=data&&data.name;st.email=session.user.email}
@@ -51,7 +51,7 @@ const Sync=(()=>{
   if(!session&&!st.role){lg.hidden=false;lg.innerHTML=loginHTML();bindLogin();return}
   if(st.role!=='admin'&&st.role!=='user'){lg.hidden=false;lg.innerHTML=`<div class="lbox"><h2>Waiting for approval</h2><p>Signed in as <b>${esc(st.email||'')}</b>. An admin needs to approve your account (Users tab) before you can see the fleet.</p><div class="row"><button id="lchk">Check again</button><button class="sec" id="lout">Sign out</button></div></div>`;
    document.getElementById('lchk').onclick=()=>run().then(gate);document.getElementById('lout').onclick=signOut;return}
-  lg.hidden=true}
+  if(!lg.hidden){lg.hidden=true;document.activeElement?.blur();render()}}
  function loginHTML(){return `<div class="lbox"><h1>Fleet Moves</h1><p class="s">Sign in to sync across your devices.</p>
 <label>Email</label><input id="lem" type="email" autocomplete="username" autocapitalize="off">
 <label>Password</label><input id="lpw" type="password" autocomplete="current-password">

@@ -28,8 +28,8 @@ const locOpts=(sel,blank)=>(blank?`<option value="">${blank}</option>`:'')+db.lo
 const typeOpts=(sel,blank)=>(blank?`<option value="">${blank}</option>`:'')+TYPES().map(t=>`<option ${t===sel?'selected':''}>${t}</option>`).join('');
 let tab='fleet',ff={q:'',type:'',loc:'',ret:false},lf={unit:'',from:'',to:''};
 document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>go(b.dataset.tab));
-function go(t,arg){if((t==='users')&&!Sync.isAdmin())t='fleet';tab=t;document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.tab===t));render(arg);scrollTo(0,0)}
-function render(arg){banner();({fleet:rFleet,move:rMove,log:rLog,data:rData,unit:rUnit,users:rUsers})[tab](arg)}
+function go(t,arg){curArg=undefined;if((t==='users')&&!Sync.isAdmin())t='fleet';tab=t;document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.tab===t));render(arg);scrollTo(0,0)}
+let curArg;function render(arg){if(arg!==undefined)curArg=arg;else arg=curArg;banner();({fleet:rFleet,move:rMove,log:rLog,data:rData,unit:rUnit,users:rUsers})[tab](arg)}
 /* FLEET */
 function rFleet(){app.innerHTML=`<div class="bar"><input id="q" type="search" placeholder="Search unit #, description, serial/VIN, plate…" value="${esc(ff.q)}">
 <select id="ft">${typeOpts(ff.type,'All types')}</select><select id="fl">${locOpts(ff.loc,'All locations')}</select><button id="addU">+ Unit</button></div>
@@ -163,3 +163,6 @@ if(navigator.storage&&navigator.storage.persist)navigator.storage.persist();
 if('serviceWorker'in navigator)addEventListener('load',()=>navigator.serviceWorker.register('sw.js'));
 
 
+function setHH(){document.documentElement.style.setProperty('--hh',(getComputedStyle(document.querySelector('header')).position==='sticky'?document.querySelector('header').offsetHeight:0)+'px')}
+addEventListener('resize',setHH);addEventListener('orientationchange',setHH);setHH();
+document.addEventListener('focusin',e=>{if(e.target.matches('input,textarea,select')&&matchMedia('(max-width:760px)').matches)setTimeout(()=>e.target.scrollIntoView({block:'center',behavior:'smooth'}),350)});
