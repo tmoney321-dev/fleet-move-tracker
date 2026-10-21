@@ -9,7 +9,7 @@ async function fetchMaster(){const r=await fetch('units.json');if(!r.ok)throw ne
 function mergeMaster(list){let a=0,u=0;list.forEach(m=>{const ex=db.units.find(x=>x.num.toLowerCase()===m.num.toLowerCase());const f={...m};delete f.row;if(f.loc)f.loc=ensureLoc(f.loc);
  if(ex){const keepLoc=ex.loc&&db.moves.some(x=>x.unitId===ex.id);['hours','dueService','regExp','lastService','section'].forEach(k=>delete ex[k]);Object.keys(f).forEach(k=>{if(k==='loc'&&keepLoc)return;if(f[k]!=='')ex[k]=f[k]});u++}else{db.units.push({id:uid(),retired:false,...f});a++}if(f.loc)ensureLoc(f.loc)});save();return {a,u}}
 async function firstRun(){if(db.units.length)return;try{const r=mergeMaster(await fetchMaster());toast(`Loaded master list: ${r.a} units`);render()}catch(e){console.warn(e)}}
-function save(){localStorage.setItem(KEY,JSON.stringify(db));banner()}
+function save(){if(typeof Sync!=="undefined")Sync.stamp(db);localStorage.setItem(KEY,JSON.stringify(db));banner();if(typeof Sync!=="undefined")Sync.soon()}
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,7)}
 const $=s=>document.querySelector(s),app=$('#app');
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -28,8 +28,8 @@ const locOpts=(sel,blank)=>(blank?`<option value="">${blank}</option>`:'')+db.lo
 const typeOpts=(sel,blank)=>(blank?`<option value="">${blank}</option>`:'')+TYPES().map(t=>`<option ${t===sel?'selected':''}>${t}</option>`).join('');
 let tab='fleet',ff={q:'',type:'',loc:'',ret:false},lf={unit:'',from:'',to:''};
 document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>go(b.dataset.tab));
-function go(t,arg){tab=t;document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.tab===t));render(arg);scrollTo(0,0)}
-function render(arg){banner();({fleet:rFleet,move:rMove,log:rLog,data:rData,unit:rUnit})[tab](arg)}
+function go(t,arg){if((t==='users')&&!Sync.isAdmin())t='fleet';tab=t;document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.tab===t));render(arg);scrollTo(0,0)}
+function render(arg){banner();({fleet:rFleet,move:rMove,log:rLog,data:rData,unit:rUnit,users:rUsers})[tab](arg)}
 /* FLEET */
 function rFleet(){app.innerHTML=`<div class="bar"><input id="q" type="search" placeholder="Search unit #, description, serial/VIN, plate…" value="${esc(ff.q)}">
 <select id="ft">${typeOpts(ff.type,'All types')}</select><select id="fl">${locOpts(ff.loc,'All locations')}</select><button id="addU">+ Unit</button></div>
@@ -61,7 +61,7 @@ ${EXTRA.map(([k,l])=>`<label>${l}</label><input data-x="${k}" value="${esc(u[k]|
 /* MOVE */
 function rMove(pre){let sel=pre?unit(pre):null;
  app.innerHTML=`<h2>Log a move</h2><label>Unit</label><input id="mq" type="search" placeholder="Search unit #" value="${sel?esc(sel.num):''}"><div class="pick" id="mp"></div>
-<div class="grid2"><div><label>From</label><select id="mf">${locOpts('', '—')}</select></div><div><label>To</label><select id="mt">${locOpts('','Choose destination')}<option value="__new">+ New location…</option></select></div>
+<div class="grid2"><div><label>From</label><select id="mf">${locOpts('', '—')}</select></div><div><label>To</label><select id="mt">${locOpts('','Choose destination')}${Sync.isAdmin()?'<option value="__new">+ New location…</option>':''}</select></div>
 <div><label>Date / time</label><input id="md" type="datetime-local" value="${localDT(new Date())}"></div>
 <div><label>Hauled by (semi, optional)</label><select id="mh"><option value="">—</option>${db.units.filter(u=>u.type==='semi'&&!u.retired).map(u=>`<option>${esc(u.num)}</option>`).join('')}</select></div>
 <div><label>Driver (optional)</label><input id="mdr" list="drv"><datalist id="drv">${[...new Set(db.moves.map(m=>m.driver).filter(Boolean))].map(x=>`<option>${esc(x)}</option>`).join('')}</datalist></div></div>
@@ -111,32 +111,42 @@ let showArch=false;
 function archiveLoc(l){const us=db.units.filter(u=>u.loc===l.name&&!u.retired);
  if(!us.length){if(!confirm(`Archive "${l.name}"? It stays in move history but is hidden from pickers.`))return;l.archived=true;save();render();return}
  $('#dlgBody').innerHTML=`<h2>Archive ${esc(l.name)}</h2><p>${us.length} unit(s) are still here: <b>${us.map(u=>esc(u.num)).join(', ')}</b></p><label>Where did they go?</label>
-<select id="aw">${db.locations.filter(x=>!x.archived&&x!==l).map(x=>x.name).sort().map(n=>`<option>${esc(n)}</option>`).join('')}<option value="__new">+ New location…</option></select>
+<select id="aw">${db.locations.filter(x=>!x.archived&&x!==l).map(x=>x.name).sort().map(n=>`<option>${esc(n)}</option>`).join('')}${Sync.isAdmin()?'<option value="__new">+ New location…</option>':''}</select>
 <label style="font-weight:400"><input type="checkbox" id="alog" checked style="width:auto;min-height:auto"> Log a move for each unit (dated now)</label>
 <div class="row"><button id="ago">Move units &amp; archive</button><button class="sec" id="acx">Cancel</button></div>`;
  const d=$('#dlg');d.showModal();$('#acx').onclick=()=>d.close();
  $('#ago').onclick=()=>{let to=$('#aw').value;if(to==='__new'){to=ensureLoc(prompt('New location name')||'');if(!to)return}const now=new Date().toISOString();
   us.forEach(u=>{if($('#alog').checked)db.moves.push({id:uid(),unitId:u.id,unitNum:u.num,from:l.name,to,at:now,hauledBy:'',driver:'',note:`Location "${l.name}" archived`});u.loc=to});
   l.archived=true;save();d.close();render();toast(`${us.length} unit(s) moved to ${to}; ${l.name} archived`)}}
+async function rUsers(){app.innerHTML='<h2>Users</h2><p class="s">Loading…</p>';
+ const {data,error}=await Sync.sb.from('profiles').select('id,email,name,role,created_at').order('created_at');
+ if(error){app.innerHTML=`<h2>Users</h2><p>Could not load users (${esc(error.message)}). Users can only be managed while online.</p>`;return}
+ app.innerHTML=`<h2>Users</h2><p class="s">To add someone: have them open this site, tap <b>Create account</b>, then approve them here. <b>Admin</b> = full edit + manage users. <b>User</b> = view fleet + log moves. <b>Pending</b> = no access.</p>`+
+ data.map(p=>`<div class="card"><div class="m"><span class="u" style="font-size:18px">${esc(p.name||p.email)}</span>${p.role==='pending'?'<span class="tag sample">NEEDS APPROVAL</span>':''}<div class="s">${esc(p.email)}</div></div>
+ <select data-uid="${p.id}" style="width:auto">${['admin','user','pending'].map(r=>`<option ${r===p.role?'selected':''}>${r}</option>`).join('')}</select></div>`).join('');
+ document.querySelectorAll('[data-uid]').forEach(s=>s.onchange=async()=>{if(s.dataset.uid===data.find(p=>p.email===Sync.email)?.id&&s.value!=='admin'&&!confirm('Remove your own admin access?'))return rUsers();
+  const {error}=await Sync.sb.from('profiles').update({role:s.value}).eq('id',s.dataset.uid);toast(error?'Failed: '+error.message:'Role updated');rUsers()})}
 function rData(){const L=db.locations.map(l=>l.name).sort();
- app.innerHTML=`<h2>Bulk import units</h2><p class="s">Paste one unit per line: <b>unit number, type, description, location</b> (CSV or tab-separated from Excel; only the unit number is required). A header row is skipped. Existing unit numbers are updated.</p>
+ app.innerHTML=`<h2>Account</h2><p class="s">Signed in as <b>${esc(Sync.email||'')}</b> · role <b>${esc(Sync.role||'')}</b></p><div class="row"><button class="sec" id="cpw">Change password</button><button class="sec" id="sout">Sign out</button><button class="sec" id="snow">Sync now</button></div>
+<div class="adm"><h2 style="margin-top:28px">Bulk import units</h2><p class="s">Paste one unit per line: <b>unit number, type, description, location</b> (CSV or tab-separated from Excel; only the unit number is required). A header row is skipped. Existing unit numbers are updated.</p>
 <textarea id="imp" placeholder="214, crane, Grove GMK5250L, Main Yard&#10;E-31, excavator, CAT 336, Job: I-45"></textarea>
 <div class="row"><button id="doImp">Import</button><label class="btn sec" style="display:inline-flex;align-items:center;margin:0;font-weight:400;color:#1b1f24;background:#dde3ea">Choose CSV file<input type="file" id="impF" accept=".csv,.txt,text/csv" hidden></label></div>
 <h2 style="margin-top:28px">Master equipment list</h2><p class="s">Adds any missing units from the bundled company list and refreshes their details by unit number. Locations of units you have logged moves for are kept.</p><div class="row"><button id="lm">Load master equipment list</button></div>
-<h2 style="margin-top:28px">Export</h2><div class="row"><button id="xm">Moves CSV</button><button id="xu">Units CSV</button></div>
-<h2 style="margin-top:28px">Backup &amp; restore</h2><p class="s">Data lives only on this iPad. Make a JSON backup regularly and save it to Files / iCloud Drive / email.</p>
+</div><h2 style="margin-top:28px">Export</h2><div class="row"><button id="xm">Moves CSV</button><button id="xu">Units CSV</button></div>
+<div class="adm"><h2 style="margin-top:28px">Backup &amp; restore</h2><p class="s">Data syncs to the cloud. A JSON backup is an extra safety copy. Restoring replaces the cloud data for everyone.</p>
 <div class="row"><button id="bk">Download JSON backup</button><label class="btn sec" style="display:inline-flex;align-items:center;margin:0;font-weight:400;color:#1b1f24;background:#dde3ea">Restore from backup…<input type="file" id="rs" accept=".json,application/json" hidden></label></div>
 <h2 style="margin-top:28px">Locations (${db.locations.filter(l=>!l.archived).length} active)</h2><div class="row"><input id="nl" placeholder="New yard or job site" style="flex:1"><button id="al">Add</button></div>
 ${db.locations.slice().sort((a,b)=>(!!a.archived-!!b.archived)||a.name.localeCompare(b.name,undefined,{numeric:true})).filter(l=>!l.archived||showArch).map(l=>`<div class="card"><div class="m">${esc(l.name)}${l.dealer?'<span class="tag sample">DEALER/REPAIR</span>':''}${l.archived?'<span class="tag ret">ARCHIVED</span>':''}</div><div class="s">${db.units.filter(u=>u.loc===l.name&&!u.retired).length} units</div><button class="sec dk" data-l="${l.id}" style="min-height:44px">${l.dealer?'Unmark':'Dealer'}</button><button class="sec rn" data-l="${l.id}" style="min-height:44px">Rename</button>${l.archived?`<button class="sec ua" data-l="${l.id}" style="min-height:44px">Restore</button>`:`<button class="sec ar" data-l="${l.id}" style="min-height:44px">Archive</button>`}</div>`).join('')}
 <div class="row"><button class="sec" id="sa">${showArch?'Hide':'Show'} archived (${db.locations.filter(l=>l.archived).length})</button></div>
-<p class="s" style="margin-top:28px">${db.units.length} units · ${db.moves.length} moves · stored on this device</p>
-<div class="row"><button class="danger" id="wipe">Erase ALL data</button></div>`;
+</div><p class="s" style="margin-top:28px">${db.units.length} units · ${db.moves.length} moves · stored on this device</p>
+`;
  const runImp=t=>{let rows=parseCSV(t);if(rows[0]&&/unit/i.test(rows[0][0]))rows=rows.slice(1);let a=0,up=0;
   rows.forEach(([num,type,desc,loc])=>{if(!num)return;const ex=db.units.find(u=>u.num.toLowerCase()===num.toLowerCase());const o={num,type:normType(type),desc:desc||'',loc:ensureLoc(loc)};
    if(ex){Object.assign(ex,{type:type?o.type:ex.type,desc:desc||ex.desc,loc:o.loc||ex.loc});delete ex.sample;up++}else{db.units.push({id:uid(),...o,retired:false});a++}});
   save();toast(`Imported: ${a} added, ${up} updated`);render()};
  $('#doImp').onclick=()=>runImp($('#imp').value);$('#impF').onchange=e=>e.target.files[0]&&e.target.files[0].text().then(runImp);
- $('#xm').onclick=()=>exportMoves(db.moves.slice().sort((a,b)=>b.at.localeCompare(a.at)));$('#xu').onclick=exportUnits;
+ $('#xm').onclick=()=>exportMoves(db.moves.slice().sort((a,b)=>b.at.localeCompare(a.at)));$('#xu').onclick=exportUnits;$('#sout').onclick=()=>Sync.signOut();$('#snow').onclick=()=>Sync.run();
+ $('#cpw').onclick=async()=>{const p=prompt('New password (8+ characters)');if(!p)return;const {error}=await Sync.sb.auth.updateUser({password:p});alert(error?'Failed: '+error.message:'Password changed')};
  $('#lm').onclick=async()=>{try{const r=mergeMaster(await fetchMaster());toast(`Master list: ${r.a} added, ${r.u} updated`);render()}catch(e){alert('Could not load master list: '+e.message)}};
  $('#bk').onclick=()=>download(`fleet-backup-${stamp()}.json`,JSON.stringify({app:'fleet-tracker',version:1,exported:new Date().toISOString(),...db},null,1),'application/json');
  $('#rs').onchange=e=>{const f=e.target.files[0];if(!f)return;f.text().then(t=>{try{const d=JSON.parse(t);if(!Array.isArray(d.units)||!Array.isArray(d.moves))throw 0;
@@ -148,8 +158,8 @@ ${db.locations.slice().sort((a,b)=>(!!a.archived-!!b.archived)||a.name.localeCom
  document.querySelectorAll('.dk').forEach(b=>b.onclick=()=>{const l=db.locations.find(x=>x.id===b.dataset.l);l.dealer=!l.dealer;save();render()});
  $('#sa').onclick=()=>{showArch=!showArch;render()};
  document.querySelectorAll('.ua').forEach(b=>b.onclick=()=>{delete db.locations.find(x=>x.id===b.dataset.l).archived;save();render()});
- document.querySelectorAll('.ar').forEach(b=>b.onclick=()=>archiveLoc(db.locations.find(x=>x.id===b.dataset.l)));
- $('#wipe').onclick=()=>{if(prompt('Type ERASE to delete everything on this device')!=='ERASE')return;db={units:[],moves:[],locations:[]};save();render()}}
+ document.querySelectorAll('.ar').forEach(b=>b.onclick=()=>archiveLoc(db.locations.find(x=>x.id===b.dataset.l)));}
 if(navigator.storage&&navigator.storage.persist)navigator.storage.persist();
 if('serviceWorker'in navigator)addEventListener('load',()=>navigator.serviceWorker.register('sw.js'));
-render();firstRun();
+
+
