@@ -72,3 +72,20 @@ dialog .row:last-child{position:sticky;bottom:-20px;background:#fff;margin:16px 
  dialog{max-height:calc(100dvh - 12px)}}
 @media (max-width:760px){.card:has(> button) .m{flex:1 1 60%}.card:has(> button) > .s{margin-left:auto}.card:has(> button) > button{flex:1 1 30%}}
 @media (max-width:760px){.card:has(> button) .m{flex:1 1 calc(100% - 90px)!important;font-weight:600}.card:has(> button)>button{flex:1 1 0!important;min-height:44px}}
+/* ---- v7 move verification ---- */
+.badge{display:inline-block;font-size:14px;font-weight:700;border-radius:999px;padding:3px 10px;margin-left:8px;vertical-align:middle;white-space:nowrap}
+.badge.done{background:#1e7d32;color:#fff}.badge.pend{background:#c62828;color:#fff}
+.card.mv{border-left:12px solid #c8d0da}
+.card.mv-done{background:#b9e6c3;border-left-color:#127a2c;box-shadow:0 1px 4px #127a2c55}
+.card.mv-pend{background:#ffc2c2;border-left-color:#d01616;box-shadow:0 1px 4px #d0161655}
+.vst{font-size:15px;margin-top:4px}.mv-done .vst{color:#0d4d1c;font-weight:600}.mv-pend .vst{color:#8e0000;font-weight:700}
+.mvb{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;margin-top:6px}.mvb button{min-height:48px}
+button.mdone{background:#1e7d32;color:#fff;font-weight:600}
+.seg{display:flex;gap:8px;margin:0 0 10px}.seg button{flex:1;background:#dde3ea;color:#1b1f24;min-height:48px}
+.seg button b{display:inline-block;min-width:26px;border-radius:999px;background:#fff8;padding:0 6px}
+.seg button.on.st-pending{background:#c62828;color:#fff}.seg button.on.st-completed{background:#1e7d32;color:#fff}.seg button.on.st-all{background:#1f3a5f;color:#fff}
+nav button{position:relative}.pc{position:absolute;top:2px;right:4px;background:#c62828;color:#fff;font-size:12px;border-radius:999px;min-width:20px;height:20px;line-height:20px;padding:0 5px;text-align:center}.pc[hidden]{display:none}
+.donechk{background:#e6f4ea;border:2px solid #1e7d32;border-radius:12px;padding:8px 12px;font-weight:600}
+@media (max-width:760px){.mvb{justify-content:stretch;width:100%}.mvb button{flex:1 1 auto}.card.mv .loc .s{display:block}.pc{top:0;right:calc(50% - 26px)}}
+body.role-user .mundo{display:none!important}
+.card.mv .s{color:#333c47}.badge.pend{background:#d01616}.badge.done{background:#127a2c}

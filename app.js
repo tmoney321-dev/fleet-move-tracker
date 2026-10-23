@@ -26,10 +26,12 @@ const lastMove=id=>db.moves.filter(m=>m.unitId===id).sort((a,b)=>b.at.localeComp
 function ensureLoc(n){n=(n||'').trim();if(!n)return n;const ex=db.locations.find(l=>l.name.toLowerCase()===n.toLowerCase());if(ex){delete ex.archived;return ex.name}db.locations.push({id:uid(),name:n});return n}
 const locOpts=(sel,blank)=>(blank?`<option value="">${blank}</option>`:'')+db.locations.filter(l=>!l.archived||l.name===sel).map(l=>l.name).sort((a,b)=>a.localeCompare(b,undefined,{numeric:true})).map(n=>`<option ${n===sel?'selected':''}>${esc(n)}</option>`).join('');
 const typeOpts=(sel,blank)=>(blank?`<option value="">${blank}</option>`:'')+TYPES().map(t=>`<option ${t===sel?'selected':''}>${t}</option>`).join('');
-let tab='fleet',ff={q:'',type:'',loc:'',ret:false},lf={unit:'',from:'',to:''};
+let tab='fleet',ff={q:'',type:'',loc:'',ret:false},lf={unit:'',from:'',to:'',st:'all'};
+const done=m=>m.status==='completed',pendN=ms=>ms.filter(m=>!done(m)).length;
+function pendBadge(){const b=document.querySelector('nav [data-tab=log]');if(!b)return;let c=b.querySelector('.pc');if(!c){c=document.createElement('b');c.className='pc';b.append(c)}const n=pendN(db.moves);c.textContent=n;c.hidden=!n;c.title=n+' pending move(s)'}
 document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>go(b.dataset.tab));
 function go(t,arg){curArg=undefined;if((t==='users')&&!Sync.isAdmin())t='fleet';tab=t;document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.tab===t));render(arg);scrollTo(0,0)}
-let curArg;function render(arg){if(arg!==undefined)curArg=arg;else arg=curArg;banner();({fleet:rFleet,move:rMove,log:rLog,data:rData,unit:rUnit,users:rUsers})[tab](arg)}
+let curArg;function render(arg){if(arg!==undefined)curArg=arg;else arg=curArg;banner();pendBadge();({fleet:rFleet,move:rMove,log:rLog,data:rData,unit:rUnit,users:rUsers})[tab](arg)}
 /* FLEET */
 function rFleet(){app.innerHTML=`<div class="bar"><input id="q" type="search" placeholder="Search unit #, description, serial/VIN, plate…" value="${esc(ff.q)}">
 <select id="ft">${typeOpts(ff.type,'All types')}</select><select id="fl">${locOpts(ff.loc,'All locations')}</select><button id="addU">+ Unit</button></div>
@@ -45,7 +47,7 @@ function rUnit(id){const u=unit(id);if(!u)return go('fleet');const ms=db.moves.f
 <div class="s">${esc(u.desc)}</div><p>Current location: <b>${esc(u.loc||'—')}</b>${db.locations.some(l=>l.name===u.loc&&l.dealer)?' <span class="tag sample">DEALER/REPAIR</span>':''}</p>
 <dl class="facts">${EXTRA.filter(([k])=>u[k]).map(([k,l])=>`<dt>${l}</dt><dd>${esc(u[k])}</dd>`).join('')}</dl>
 <div class="row"><button id="mv">Log move</button><button class="sec" id="ed">Edit</button><button class="${u.retired?'sec':'danger'}" id="rt">${u.retired?'Un-retire':'Retire'}</button></div>
-<h2 style="margin-top:24px">Move history (${ms.length})</h2>${ms.map(moveCard).join('')||'<p class="s">No moves yet.</p>'}`;
+<h2 style="margin-top:24px">Move history (${ms.length})${pendN(ms)?` <span class="badge pend">${pendN(ms)} pending</span>`:''}</h2>${ms.map(moveCard).join('')||'<p class="s">No moves yet.</p>'}`;
  $('#back').onclick=()=>go('fleet');$('#mv').onclick=()=>go('move',id);$('#ed').onclick=()=>editUnit(u);
  $('#rt').onclick=()=>{if(!u.retired&&!confirm('Retire '+u.num+'? History is kept.'))return;u.retired=!u.retired;save();render(id)};bindMoveCards(()=>render(id))}
 function editUnit(u){const n=!u;u=u||{type:'crane',loc:''};
@@ -65,7 +67,8 @@ function rMove(pre){let sel=pre?unit(pre):null;
 <div><label>Date / time</label><input id="md" type="datetime-local" value="${localDT(new Date())}"></div>
 <div><label>Hauled by (semi, optional)</label><select id="mh"><option value="">—</option>${db.units.filter(u=>u.type==='semi'&&!u.retired).map(u=>`<option>${esc(u.num)}</option>`).join('')}</select></div>
 <div><label>Driver (optional)</label><input id="mdr" list="drv"><datalist id="drv">${[...new Set(db.moves.map(m=>m.driver).filter(Boolean))].map(x=>`<option>${esc(x)}</option>`).join('')}</datalist></div></div>
-<label>Note</label><textarea id="mn"></textarea><div class="row"><button id="ms" style="flex:1">Save move</button></div>`;
+<label>Note</label><textarea id="mn"></textarea>
+<label class="donechk"><input type="checkbox" id="mdone"> Move is already completed (unit has arrived)</label><div class="row"><button id="ms" style="flex:1">Save move</button></div>`;
  const pick=()=>{const q=$('#mq').value.toLowerCase();const us=db.units.filter(u=>!u.retired&&(!q||hay(u).includes(q))).slice(0,40);
   $('#mp').innerHTML=us.map(u=>`<div data-id="${u.id}" class="${sel&&sel.id===u.id?'sel':''}"><b>${esc(u.num)}</b> · ${u.type} · <span class="s">${esc(u.loc||'—')}</span></div>`).join('')||'<div>No match</div>';
   $('#mp').querySelectorAll('[data-id]').forEach(x=>x.onclick=()=>{sel=unit(x.dataset.id);$('#mq').value=sel.num;setFrom();pick()})};
@@ -73,11 +76,14 @@ function rMove(pre){let sel=pre?unit(pre):null;
  $('#mq').oninput=()=>{sel=null;pick()};pick();setFrom();
  $('#mt').onchange=e=>{if(e.target.value!=='__new')return;const n=prompt('New location name (yard or job site)');if(n){ensureLoc(n);save();$('#mt').innerHTML=locOpts(n.trim(),'Choose destination')+'<option value="__new">+ New location…</option>'}else e.target.value=''};
  $('#ms').onclick=()=>{if(!sel)return alert('Pick a unit');const to=$('#mt').value;if(!to||to==='__new')return alert('Choose a destination');
-  const m={id:uid(),unitId:sel.id,unitNum:sel.num,from:$('#mf').value,to,at:new Date($('#md').value||Date.now()).toISOString(),hauledBy:$('#mh').value,driver:$('#mdr').value.trim(),note:$('#mn').value.trim()};
+  const m={id:uid(),unitId:sel.id,unitNum:sel.num,from:$('#mf').value,to,at:new Date($('#md').value||Date.now()).toISOString(),hauledBy:$('#mh').value,driver:$('#mdr').value.trim(),note:$('#mn').value.trim(),status:'pending'};
+  if($('#mdone').checked)Object.assign(m,{status:'completed',completedAt:new Date().toISOString(),completedBy:who()});
   db.moves.push(m);const lm=lastMove(sel.id);sel.loc=lm.to;save();toast(`${sel.num} → ${to}`);go('unit',sel.id)}}
-function moveCard(m){return `<div class="card" data-mid="${m.id}"><div class="m"><span class="u">${esc(m.unitNum)}</span>${m.sample?'<span class="tag sample">SAMPLE</span>':''}
-<div>${esc(m.from||'—')} → <b>${esc(m.to)}</b></div><div class="s">${[m.hauledBy&&'Hauled by '+esc(m.hauledBy),m.driver&&'Driver: '+esc(m.driver),m.note&&esc(m.note)].filter(Boolean).join(' · ')}</div></div>
-<div class="loc">${fmt(m.at)}<div><button class="sec edm" style="min-height:44px;margin-top:6px">Edit</button> <button class="sec del" style="min-height:44px;margin-top:6px">Delete</button></div></div></div>`}
+const who=()=>Sync.name||Sync.email||'me';
+function moveCard(m){const ok=done(m);return `<div class="card mv ${ok?'mv-done':'mv-pend'}" data-mid="${m.id}"><div class="m"><span class="u">${esc(m.unitNum)}</span>${ok?'<span class="badge done">Completed ✓</span>':'<span class="badge pend">Pending</span>'}${m.sample?'<span class="tag sample">SAMPLE</span>':''}
+<div>${esc(m.from||'—')} → <b>${esc(m.to)}</b></div><div class="s">${[m.hauledBy&&'Hauled by '+esc(m.hauledBy),m.driver&&'Driver: '+esc(m.driver),m.note&&esc(m.note)].filter(Boolean).join(' · ')}</div>
+<div class="vst">${ok?`Completed${m.completedBy?' by <b>'+esc(m.completedBy)+'</b>':''}${m.completedAt?' · '+fmt(m.completedAt):''}`:'Not yet confirmed as completed'}</div></div>
+<div class="loc">${fmt(m.at)}<div class="mvb"><button class="sec edm">Edit</button>${ok?'<button class="sec mundo">Undo</button>':'<button class="mdone">Done ✓</button>'}<button class="sec del">Delete</button></div></div></div>`}
 function relocate(id){const u=unit(id),lm=u&&lastMove(id);if(lm)u.loc=lm.to}
 function editMove(m,after){const dl=`<datalist id="mlocs">${locOpts()}</datalist>`;
  $('#dlgBody').innerHTML=`<h2>Edit move</h2>${dl}<label>Unit</label><select id="eu">${db.units.slice().sort((a,b)=>a.num.localeCompare(b.num,undefined,{numeric:true})).map(u=>`<option value="${u.id}" ${u.id===m.unitId?'selected':''}>${esc(u.num)} · ${esc(u.desc)}</option>`).join('')}</select>
@@ -89,19 +95,22 @@ function editMove(m,after){const dl=`<datalist id="mlocs">${locOpts()}</datalist
  $('#es').onclick=()=>{const to=ensureLoc($('#et').value);if(!to)return alert('Destination required');const old=m.unitId;const u=unit($('#eu').value);
   Object.assign(m,{unitId:u.id,unitNum:u.num,from:ensureLoc($('#ef').value),to,at:new Date($('#ed2').value||m.at).toISOString(),hauledBy:$('#eh').value.trim(),driver:$('#edr').value.trim(),note:$('#en').value.trim()});
   delete m.sample;relocate(old);relocate(u.id);save();d.close();after();toast('Move updated')}}
-function bindMoveCards(after){document.querySelectorAll('[data-mid] .edm').forEach(b=>b.onclick=e=>{e.stopPropagation();editMove(db.moves.find(x=>x.id===b.closest('[data-mid]').dataset.mid),after)});document.querySelectorAll('[data-mid] .del').forEach(b=>b.onclick=e=>{e.stopPropagation();const id=b.closest('[data-mid]').dataset.mid;const m=db.moves.find(x=>x.id===id);
+function bindMoveCards(after){const mv=b=>db.moves.find(x=>x.id===b.closest('[data-mid]').dataset.mid);
+ document.querySelectorAll('[data-mid] .mdone').forEach(b=>b.onclick=e=>{e.stopPropagation();const m=mv(b);Object.assign(m,{status:'completed',completedAt:new Date().toISOString(),completedBy:who()});save();after();toast(m.unitNum+' marked completed')});
+ document.querySelectorAll('[data-mid] .mundo').forEach(b=>b.onclick=e=>{e.stopPropagation();const m=mv(b);if(!confirm(`Undo completion of ${m.unitNum} → ${m.to}? It will show as Pending again.`))return;m.status='pending';delete m.completedAt;delete m.completedBy;save();after();toast('Marked pending')});
+ document.querySelectorAll('[data-mid] .edm').forEach(b=>b.onclick=e=>{e.stopPropagation();editMove(db.moves.find(x=>x.id===b.closest('[data-mid]').dataset.mid),after)});document.querySelectorAll('[data-mid] .del').forEach(b=>b.onclick=e=>{e.stopPropagation();const id=b.closest('[data-mid]').dataset.mid;const m=db.moves.find(x=>x.id===id);
  if(!confirm('Delete this move?'))return;db.moves=db.moves.filter(x=>x.id!==id);const u=unit(m.unitId),lm=u&&lastMove(u.id);if(u&&lm)u.loc=lm.to;else if(u&&m.from)u.loc=m.from;save();after()})}
 /* LOG */
-function filteredMoves(){return db.moves.filter(m=>(!lf.unit||m.unitNum.toLowerCase().includes(lf.unit.toLowerCase()))&&(!lf.from||m.at>=new Date(lf.from+'T00:00').toISOString())&&(!lf.to||m.at<=new Date(lf.to+'T23:59:59').toISOString())).sort((a,b)=>b.at.localeCompare(a.at))}
-function rLog(){app.innerHTML=`<div class="bar"><input id="lu" type="search" placeholder="Filter by unit #" value="${esc(lf.unit)}"><input id="lfrom" type="date" value="${lf.from}"><input id="lto" type="date" value="${lf.to}"><button id="lx">Export CSV</button></div><div id="ll"></div>`;
- const f=()=>{const ms=filteredMoves();$('#ll').innerHTML=`<div class="s" style="margin:8px 0">${ms.length} move(s)</div>`+ms.map(moveCard).join('');bindMoveCards(f)};
+function filteredMoves(){return db.moves.filter(m=>(!lf.unit||m.unitNum.toLowerCase().includes(lf.unit.toLowerCase()))&&(!lf.from||m.at>=new Date(lf.from+'T00:00').toISOString())&&(!lf.to||m.at<=new Date(lf.to+'T23:59:59').toISOString())&&(lf.st==='all'||(lf.st==='completed')===done(m))).sort((a,b)=>b.at.localeCompare(a.at))}
+function rLog(){app.innerHTML=`<div class="bar"><input id="lu" type="search" placeholder="Filter by unit #" value="${esc(lf.unit)}"><input id="lfrom" type="date" value="${lf.from}"><input id="lto" type="date" value="${lf.to}"><button id="lx">Export CSV</button></div><div class="seg" id="lst" role="tablist"></div><div id="ll"></div>`;
+ const f=()=>{const all=db.moves.length,p=pendN(db.moves);$('#lst').innerHTML=[['pending','Pending',p],['completed','Completed',all-p],['all','All',all]].map(([v,l,n])=>`<button data-st="${v}" class="${lf.st===v?'on':''} st-${v}">${l} <b>${n}</b></button>`).join('');$('#lst').querySelectorAll('button').forEach(b=>b.onclick=()=>{lf.st=b.dataset.st;f()});pendBadge();const ms=filteredMoves();$('#ll').innerHTML=`<div class="s" style="margin:8px 0">${ms.length} move(s)</div>`+ms.map(moveCard).join('');bindMoveCards(f)};
  $('#lu').oninput=e=>{lf.unit=e.target.value;f()};$('#lfrom').onchange=e=>{lf.from=e.target.value;f()};$('#lto').onchange=e=>{lf.to=e.target.value;f()};$('#lx').onclick=()=>exportMoves(filteredMoves());f()}
 /* DATA */
 const csvCell=v=>{v=String(v??'');return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v};
 const toCSV=rows=>rows.map(r=>r.map(csvCell).join(',')).join('\r\n');
 function download(name,text,type){const b=new Blob([text],{type});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),5000)}
 const stamp=()=>localDT(new Date()).slice(0,10);
-function exportMoves(ms){download(`fleet-moves-${stamp()}.csv`,toCSV([['Date/Time','Unit','From','To','Hauled By','Driver','Note'],...ms.map(m=>[new Date(m.at).toLocaleString(),m.unitNum,m.from,m.to,m.hauledBy,m.driver,m.note])]),'text/csv')}
+function exportMoves(ms){download(`fleet-moves-${stamp()}.csv`,toCSV([['Date/Time','Unit','From','To','Hauled By','Driver','Note','Status','Completed At','Completed By'],...ms.map(m=>[new Date(m.at).toLocaleString(),m.unitNum,m.from,m.to,m.hauledBy,m.driver,m.note,done(m)?'completed':'pending',m.completedAt?new Date(m.completedAt).toLocaleString():'',m.completedBy||''])]),'text/csv')}
 function exportUnits(){download(`fleet-units-${stamp()}.csv`,toCSV([['Unit','Type','Description','Location','Last Move','Retired',...EXTRA.map(x=>x[1])],...db.units.map(u=>{const m=lastMove(u.id);return [u.num,u.type,u.desc,u.loc,m?new Date(m.at).toLocaleString():'',u.retired?'yes':'',...EXTRA.map(([k])=>u[k]||'')]})]),'text/csv')}
 function parseCSV(t){const rows=[];let r=[],c='',q=false;for(let i=0;i<t.length;i++){const ch=t[i];if(q){if(ch==='"'){if(t[i+1]==='"'){c+='"';i++}else q=false}else c+=ch}
  else if(ch==='"')q=true;else if(ch===','||ch==='\t'){r.push(c);c=''}else if(ch==='\n'||ch==='\r'){if(ch==='\r'&&t[i+1]==='\n')i++;r.push(c);rows.push(r);r=[];c=''}else c+=ch}

@@ -12,8 +12,12 @@ const Sync=(()=>{
  const snap=r=>{const o={...r};delete o.updatedAt;return JSON.stringify(o)};
  const key=(k,id)=>k+':'+id;
  const isAdmin=()=>st.role==='admin';
+ const SF=['status','completedAt','completedBy','updatedAt'],strip=j=>{const o=JSON.parse(j);SF.forEach(f=>delete o[f]);return JSON.stringify(o)};
+ /* users may push brand-new moves, or a status-only change (mark completed) on an existing move */
+ const statusOnly=(r,kk)=>kk in st.synced&&strip(st.synced[kk])===strip(snap(r));
+ const can=(k,r,kk)=>isAdmin()||k==='moves'&&(!(kk in st.synced)||statusOnly(r,kk));
  function stamp(db){const now=new Date().toISOString();KINDS.forEach(k=>db[k].forEach(r=>{if(st.synced[key(k,r.id)]!==snap(r))r.updatedAt=now}))}
- function pending(db){let n=0;const live=new Set();KINDS.forEach(k=>db[k].forEach(r=>{live.add(key(k,r.id));if(st.synced[key(k,r.id)]!==snap(r)&&(isAdmin()||k==='moves'&&!(key(k,r.id) in st.synced)))n++}));
+ function pending(db){let n=0;const live=new Set();KINDS.forEach(k=>db[k].forEach(r=>{live.add(key(k,r.id));if(st.synced[key(k,r.id)]!==snap(r)&&can(k,r,key(k,r.id)))n++}));
   if(isAdmin())Object.keys(st.synced).forEach(x=>{if(!live.has(x))n++});return n}
  function status(){const el=document.getElementById('sync');if(!el)return;const p=pending(db);
   el.textContent=!session?'Not signed in':busy?'Syncing…':!navigator.onLine?`Offline${p?' · '+p+' to sync':''}`:lastErr?'Sync error – tap':p?p+' to sync':'Synced ✓';
@@ -29,13 +33,15 @@ const Sync=(()=>{
   const j=arr.findIndex(r=>r.id===row.id),local=j>=0?arr[j]:null,dirty=local&&st.synced[kk]!==snap(local);
   const remote={...row.data,id:row.id};
   if(row.deleted){if(j>=0&&!(dirty&&isAdmin()&&(local.updatedAt||'')>(remote.updatedAt||'')))arr.splice(j,1);delete st.synced[kk];return}
-  if(dirty&&(isAdmin()||k==='moves'&&!(kk in st.synced))&&(local.updatedAt||'')>(remote.updatedAt||'')){st.synced[kk]=snap(remote);return}
+  if(dirty&&can(k,local,kk)&&(local.updatedAt||'')>(remote.updatedAt||'')){st.synced[kk]=snap(remote);return}
   if(j>=0)arr[j]=remote;else arr.push(remote);st.synced[kk]=snap(remote)}
  async function push(){const live=new Set();
   for(const k of KINDS){const rows=[];
    for(const r of db[k]){const kk=key(k,r.id);live.add(kk);if(st.synced[kk]===snap(r))continue;
     if(isAdmin())rows.push({id:r.id,data:r,deleted:false});
-    else if(k==='moves'&&!(kk in st.synced)){const m={...r};const {error}=await sb.rpc('log_move',{p:m});if(error)throw error;st.synced[kk]=snap(r)}}
+    else if(k==='moves'&&!(kk in st.synced)){const m={...r};const {error}=await sb.rpc('log_move',{p:m});if(error)throw error;st.synced[kk]=snap(r)}
+    else if(statusOnly(r,kk)){const {data:ok,error}=await sb.rpc('set_move_status',{p_id:r.id,p_status:r.status||'pending',p_at:r.updatedAt||new Date().toISOString()});if(error)throw error;st.synced[kk]=snap(r);
+     if(!ok){const {data:row}=await sb.from('moves').select('id,data,deleted,updated_at').eq('id',r.id).maybeSingle();if(row&&!row.deleted){const rem={...row.data,id:row.id},j=db.moves.findIndex(x=>x.id===r.id);if(j>=0)db.moves[j]=rem;st.synced[kk]=snap(rem)}}}}
    if(isAdmin())Object.keys(st.synced).forEach(kk=>{if(kk.startsWith(k+':')&&!live.has(kk))rows.push({id:kk.slice(k.length+1),data:{updatedAt:new Date().toISOString()},deleted:true})});
    for(let i=0;i<rows.length;i+=200){const ch=rows.slice(i,i+200);const {error}=await sb.rpc('sync_push',{kind:k,rows:ch});if(error)throw error;
     ch.forEach(x=>{const kk=key(k,x.id);if(x.deleted)delete st.synced[kk];else st.synced[kk]=snap(x.data)})}}}
@@ -68,6 +74,6 @@ const Sync=(()=>{
   if(!s&&ev==='SIGNED_OUT'){gate()}status()});
  addEventListener('online',()=>run());document.addEventListener('visibilitychange',()=>{if(!document.hidden)run()});setInterval(run,45000);
  document.addEventListener('click',e=>{if(e.target.id==='sync')run()});
- return {sb,stamp,run,status,isAdmin,applyRole,gate,signOut,soon(){clearTimeout(timer);timer=setTimeout(run,1200);status()},get role(){return st.role},get email(){return st.email}};
+ return {sb,stamp,run,status,isAdmin,applyRole,gate,signOut,soon(){clearTimeout(timer);timer=setTimeout(run,1200);status()},get role(){return st.role},get name(){return st.name},get email(){return st.email}};
 })();
 Sync.applyRole();render();
