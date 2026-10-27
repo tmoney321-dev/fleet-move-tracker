@@ -26,6 +26,10 @@ const lastMove=id=>db.moves.filter(m=>m.unitId===id).sort((a,b)=>b.at.localeComp
 function ensureLoc(n){n=(n||'').trim();if(!n)return n;const ex=db.locations.find(l=>l.name.toLowerCase()===n.toLowerCase());if(ex){delete ex.archived;return ex.name}db.locations.push({id:uid(),name:n});return n}
 const locOpts=(sel,blank)=>(blank?`<option value="">${blank}</option>`:'')+db.locations.filter(l=>!l.archived||l.name===sel).map(l=>l.name).sort((a,b)=>a.localeCompare(b,undefined,{numeric:true})).map(n=>`<option ${n===sel?'selected':''}>${esc(n)}</option>`).join('');
 const typeOpts=(sel,blank)=>(blank?`<option value="">${blank}</option>`:'')+TYPES().map(t=>`<option ${t===sel?'selected':''}>${t}</option>`).join('');
+const locNames=()=>db.locations.filter(l=>!l.archived).map(l=>l.name).sort(Combo.numCmp);
+const distinct=k=>[...new Set(db.units.map(u=>String(u[k]||'').trim()).filter(Boolean))].sort(Combo.numCmp);
+const drivers=()=>[...new Set(db.moves.map(m=>m.driver).filter(Boolean))].sort(Combo.numCmp);
+const semis=()=>[...new Set([...db.units.filter(u=>u.type==='semi'&&!u.retired).map(u=>u.num),...db.moves.map(m=>m.hauledBy).filter(Boolean)])].sort(Combo.numCmp);
 let tab='fleet',ff={q:'',type:'',loc:'',ret:false},lf={unit:'',from:'',to:'',st:'all'};
 const done=m=>m.status==='completed',pendN=ms=>ms.filter(m=>!done(m)).length;
 function pendBadge(){const b=document.querySelector('nav [data-tab=log]');if(!b)return;let c=b.querySelector('.pc');if(!c){c=document.createElement('b');c.className='pc';b.append(c)}const n=pendN(db.moves);c.textContent=n;c.hidden=!n;c.title=n+' pending move(s)'}
@@ -53,27 +57,25 @@ function rUnit(id){const u=unit(id);if(!u)return go('fleet');const ms=db.moves.f
 function editUnit(u){const n=!u;u=u||{type:'crane',loc:''};
  $('#dlgBody').innerHTML=`<h2>${n?'Add unit':'Edit '+esc(u.num)}</h2><label>Unit number</label><input id="un" value="${esc(u.num||'')}">
 <label>Type</label><select id="ut">${typeOpts(u.type)}</select><label>Description</label><input id="ud" value="${esc(u.desc||'')}">
-${EXTRA.map(([k,l])=>`<label>${l}</label><input data-x="${k}" value="${esc(u[k]||'')}">`).join('')}<label>Current location</label><input id="ul" list="locs" value="${esc(u.loc)}" placeholder="Pick or type new"><datalist id="locs">${locOpts()}</datalist>
+${EXTRA.map(([k,l])=>`<label>${l}</label><input data-x="${k}" value="${esc(u[k]||'')}">`).join('')}<label>Current location</label><input id="ul" value="${esc(u.loc)}" placeholder="Pick or type new">
 <div class="row"><button id="us">Save</button><button class="sec" id="uc">Cancel</button></div>`;
- const d=$('#dlg');d.showModal();$('#uc').onclick=()=>d.close();
+ const d=$('#dlg');Combo.attach($('#ul'),locNames,{add:'Add new location'});['company','subCompany','owner','warranty'].forEach(k=>Combo.attach(document.querySelector(`#dlgBody [data-x=${k}]`),()=>distinct(k),{add:'Use'}));d.showModal();$('#uc').onclick=()=>d.close();
  $('#us').onclick=()=>{const num=$('#un').value.trim();if(!num)return alert('Unit number required');
   if(db.units.some(x=>x.num.toLowerCase()===num.toLowerCase()&&x.id!==u.id))return alert('Unit '+num+' already exists');
   Object.assign(u,{num,type:$('#ut').value,desc:$('#ud').value.trim(),loc:ensureLoc($('#ul').value)});document.querySelectorAll('#dlgBody [data-x]').forEach(i=>u[i.dataset.x]=i.value.trim());
   if(n){u.id=uid();u.retired=false;db.units.push(u)}else{delete u.sample;db.moves.forEach(m=>{if(m.unitId===u.id)m.unitNum=u.num})}save();d.close();render(tab==='unit'?u.id:undefined);toast('Unit saved')}}
 /* MOVE */
 function rMove(pre){let sel=pre?unit(pre):null;
- app.innerHTML=`<h2>Log a move</h2><label>Unit</label><input id="mq" type="search" placeholder="Search unit #" value="${sel?esc(sel.num):''}"><div class="pick" id="mp"></div>
+ app.innerHTML=`<h2>Log a move</h2><label>Unit</label><select id="mu"><option value="">Search unit # or tap to choose…</option>${db.units.filter(u=>!u.retired||(sel&&sel.id===u.id)).slice().sort((a,b)=>a.num.localeCompare(b.num,undefined,{numeric:true})).map(u=>`<option value="${u.id}" data-short="${esc(u.num)}" data-s="${esc(hay(u))}" ${sel&&sel.id===u.id?'selected':''}>${esc(u.num)} · ${esc(u.type)} · ${esc(u.loc||'—')}</option>`).join('')}</select>
 <div class="grid2"><div><label>From</label><select id="mf">${locOpts('', '—')}</select></div><div><label>To</label><select id="mt">${locOpts('','Choose destination')}${Sync.isAdmin()?'<option value="__new">+ New location…</option>':''}</select></div>
 <div><label>Date / time</label><input id="md" type="datetime-local" value="${localDT(new Date())}"></div>
 <div><label>Hauled by (semi, optional)</label><select id="mh"><option value="">—</option>${db.units.filter(u=>u.type==='semi'&&!u.retired).map(u=>`<option>${esc(u.num)}</option>`).join('')}</select></div>
-<div><label>Driver (optional)</label><input id="mdr" list="drv"><datalist id="drv">${[...new Set(db.moves.map(m=>m.driver).filter(Boolean))].map(x=>`<option>${esc(x)}</option>`).join('')}</datalist></div></div>
+<div><label>Driver (optional)</label><input id="mdr"></div></div>
 <label>Note</label><textarea id="mn"></textarea>
 <label class="donechk"><input type="checkbox" id="mdone"> Move is already completed (unit has arrived)</label><div class="row"><button id="ms" style="flex:1">Save move</button></div>`;
- const pick=()=>{const q=$('#mq').value.toLowerCase();const us=db.units.filter(u=>!u.retired&&(!q||hay(u).includes(q))).slice(0,40);
-  $('#mp').innerHTML=us.map(u=>`<div data-id="${u.id}" class="${sel&&sel.id===u.id?'sel':''}"><b>${esc(u.num)}</b> · ${u.type} · <span class="s">${esc(u.loc||'—')}</span></div>`).join('')||'<div>No match</div>';
-  $('#mp').querySelectorAll('[data-id]').forEach(x=>x.onclick=()=>{sel=unit(x.dataset.id);$('#mq').value=sel.num;setFrom();pick()})};
  const setFrom=()=>{if(sel&&sel.loc){ensureLoc(sel.loc);$('#mf').innerHTML=locOpts(sel.loc,'—')}};
- $('#mq').oninput=()=>{sel=null;pick()};pick();setFrom();
+ $('#mu').onchange=()=>{sel=unit($('#mu').value)||null;setFrom()};setFrom();
+ Combo.attach($('#mdr'),drivers,{add:'Use'});
  $('#mt').onchange=e=>{if(e.target.value!=='__new')return;const n=prompt('New location name (yard or job site)');if(n){ensureLoc(n);save();$('#mt').innerHTML=locOpts(n.trim(),'Choose destination')+'<option value="__new">+ New location…</option>'}else e.target.value=''};
  $('#ms').onclick=()=>{if(!sel)return alert('Pick a unit');const to=$('#mt').value;if(!to||to==='__new')return alert('Choose a destination');
   const m={id:uid(),unitId:sel.id,unitNum:sel.num,from:$('#mf').value,to,at:new Date($('#md').value||Date.now()).toISOString(),hauledBy:$('#mh').value,driver:$('#mdr').value.trim(),note:$('#mn').value.trim(),status:'pending'};
@@ -85,13 +87,13 @@ function moveCard(m){const ok=done(m);return `<div class="card mv ${ok?'mv-done'
 <div class="vst">${ok?`Completed${m.completedBy?' by <b>'+esc(m.completedBy)+'</b>':''}${m.completedAt?' · '+fmt(m.completedAt):''}`:'Not yet confirmed as completed'}</div></div>
 <div class="loc">${fmt(m.at)}<div class="mvb"><button class="sec edm">Edit</button>${ok?'<button class="sec mundo">Undo</button>':'<button class="mdone">Done ✓</button>'}<button class="sec del">Delete</button></div></div></div>`}
 function relocate(id){const u=unit(id),lm=u&&lastMove(id);if(lm)u.loc=lm.to}
-function editMove(m,after){const dl=`<datalist id="mlocs">${locOpts()}</datalist>`;
- $('#dlgBody').innerHTML=`<h2>Edit move</h2>${dl}<label>Unit</label><select id="eu">${db.units.slice().sort((a,b)=>a.num.localeCompare(b.num,undefined,{numeric:true})).map(u=>`<option value="${u.id}" ${u.id===m.unitId?'selected':''}>${esc(u.num)} · ${esc(u.desc)}</option>`).join('')}</select>
-<div class="grid2"><div><label>From</label><input id="ef" list="mlocs" value="${esc(m.from)}"></div><div><label>To</label><input id="et" list="mlocs" value="${esc(m.to)}"></div>
+function editMove(m,after){
+ $('#dlgBody').innerHTML=`<h2>Edit move</h2><label>Unit</label><select id="eu">${db.units.slice().sort((a,b)=>a.num.localeCompare(b.num,undefined,{numeric:true})).map(u=>`<option value="${u.id}" ${u.id===m.unitId?'selected':''}>${esc(u.num)} · ${esc(u.desc)}</option>`).join('')}</select>
+<div class="grid2"><div><label>From</label><input id="ef" value="${esc(m.from)}"></div><div><label>To</label><input id="et" value="${esc(m.to)}"></div>
 <div><label>Date / time</label><input id="ed2" type="datetime-local" value="${localDT(new Date(m.at))}"></div><div><label>Hauled by</label><input id="eh" value="${esc(m.hauledBy)}"></div>
 <div><label>Driver</label><input id="edr" value="${esc(m.driver)}"></div></div><label>Note</label><textarea id="en">${esc(m.note)}</textarea>
 <div class="row"><button id="es">Save</button><button class="sec" id="ec">Cancel</button></div>`;
- const d=$('#dlg');d.showModal();$('#ec').onclick=()=>d.close();
+ const d=$('#dlg');[$('#ef'),$('#et')].forEach(i=>Combo.attach(i,locNames,{add:'Add new location'}));Combo.attach($('#eh'),semis,{add:'Use'});Combo.attach($('#edr'),drivers,{add:'Use'});d.showModal();$('#ec').onclick=()=>d.close();
  $('#es').onclick=()=>{const to=ensureLoc($('#et').value);if(!to)return alert('Destination required');const old=m.unitId;const u=unit($('#eu').value);
   Object.assign(m,{unitId:u.id,unitNum:u.num,from:ensureLoc($('#ef').value),to,at:new Date($('#ed2').value||m.at).toISOString(),hauledBy:$('#eh').value.trim(),driver:$('#edr').value.trim(),note:$('#en').value.trim()});
   delete m.sample;relocate(old);relocate(u.id);save();d.close();after();toast('Move updated')}}
@@ -104,6 +106,7 @@ function bindMoveCards(after){const mv=b=>db.moves.find(x=>x.id===b.closest('[da
 function filteredMoves(){return db.moves.filter(m=>(!lf.unit||m.unitNum.toLowerCase().includes(lf.unit.toLowerCase()))&&(!lf.from||m.at>=new Date(lf.from+'T00:00').toISOString())&&(!lf.to||m.at<=new Date(lf.to+'T23:59:59').toISOString())&&(lf.st==='all'||(lf.st==='completed')===done(m))).sort((a,b)=>b.at.localeCompare(a.at))}
 function rLog(){app.innerHTML=`<div class="bar"><input id="lu" type="search" placeholder="Filter by unit #" value="${esc(lf.unit)}"><input id="lfrom" type="date" value="${lf.from}"><input id="lto" type="date" value="${lf.to}"><button id="lx">Export CSV</button></div><div class="seg" id="lst" role="tablist"></div><div id="ll"></div>`;
  const f=()=>{const all=db.moves.length,p=pendN(db.moves);$('#lst').innerHTML=[['pending','Pending',p],['completed','Completed',all-p],['all','All',all]].map(([v,l,n])=>`<button data-st="${v}" class="${lf.st===v?'on':''} st-${v}">${l} <b>${n}</b></button>`).join('');$('#lst').querySelectorAll('button').forEach(b=>b.onclick=()=>{lf.st=b.dataset.st;f()});pendBadge();const ms=filteredMoves();$('#ll').innerHTML=`<div class="s" style="margin:8px 0">${ms.length} move(s)</div>`+ms.map(moveCard).join('');bindMoveCards(f)};
+ Combo.attach($('#lu'),()=>[...new Set([...db.units.map(u=>u.num),...db.moves.map(m=>m.unitNum)])].sort(Combo.numCmp));
  $('#lu').oninput=e=>{lf.unit=e.target.value;f()};$('#lfrom').onchange=e=>{lf.from=e.target.value;f()};$('#lto').onchange=e=>{lf.to=e.target.value;f()};$('#lx').onclick=()=>exportMoves(filteredMoves());f()}
 /* DATA */
 const csvCell=v=>{v=String(v??'');return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v};
@@ -132,7 +135,7 @@ async function rUsers(){app.innerHTML='<h2>Users</h2><p class="s">Loading…</p>
  if(error){app.innerHTML=`<h2>Users</h2><p>Could not load users (${esc(error.message)}). Users can only be managed while online.</p>`;return}
  app.innerHTML=`<h2>Users</h2><p class="s">To add someone: have them open this site, tap <b>Create account</b>, then approve them here. <b>Admin</b> = full edit + manage users. <b>User</b> = view fleet + log moves. <b>Pending</b> = no access.</p>`+
  data.map(p=>`<div class="card"><div class="m"><span class="u" style="font-size:18px">${esc(p.name||p.email)}</span>${p.role==='pending'?'<span class="tag sample">NEEDS APPROVAL</span>':''}<div class="s">${esc(p.email)}</div></div>
- <select data-uid="${p.id}" style="width:auto">${['admin','user','pending'].map(r=>`<option ${r===p.role?'selected':''}>${r}</option>`).join('')}</select></div>`).join('');
+ <select data-plain data-uid="${p.id}" style="width:auto">${['admin','user','pending'].map(r=>`<option ${r===p.role?'selected':''}>${r}</option>`).join('')}</select></div>`).join('');
  document.querySelectorAll('[data-uid]').forEach(s=>s.onchange=async()=>{if(s.dataset.uid===data.find(p=>p.email===Sync.email)?.id&&s.value!=='admin'&&!confirm('Remove your own admin access?'))return rUsers();
   const {error}=await Sync.sb.from('profiles').update({role:s.value}).eq('id',s.dataset.uid);toast(error?'Failed: '+error.message:'Role updated');rUsers()})}
 function rData(){const L=db.locations.map(l=>l.name).sort();
