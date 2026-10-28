@@ -105,3 +105,13 @@ body.role-user .mundo{display:none!important}
 .cb-o{min-height:46px;display:flex;align-items:center;padding:8px 14px;border-bottom:1px solid #eef0f3;cursor:pointer;line-height:1.25;font-size:17px;word-break:break-word}
 .cb-o:last-child{border-bottom:0}.cb-o.act{background:#dbe6f5}.cb-o.sel{font-weight:700}.cb-o.sel::after{content:'✓';margin-left:auto;padding-left:10px;color:#1e7d32}
 .cb-o.blank{color:#5a6573;font-style:italic}.cb-o.add{color:#1f3a5f;font-weight:700}.cb-o.none{color:#5a6573;cursor:default}
+/* ---- v9 pending-first move lists ---- */
+#app,#ll{overflow-anchor:none}
+.grp{display:flex;align-items:center;gap:10px;margin:14px 2px 8px;font-size:13px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#5a6573}
+.grp::after{content:'';flex:1;height:1px;background:#c8d0da}
+.grp-pend{color:#a31212}.grp-done{color:#0d4d1c;margin-top:20px}
+.card.mv{transition:opacity .16s ease,transform .3s ease}
+.card.mv-out{opacity:0;transform:scale(.98);pointer-events:none}
+.card.mv-land{animation:mvland 1.1s ease-out}
+@keyframes mvland{0%{opacity:0;box-shadow:0 0 0 4px #f2a900}40%{opacity:1;box-shadow:0 0 0 4px #f2a900}100%{box-shadow:0 1px 4px #0002}}
+@media (prefers-reduced-motion:reduce){.card.mv,.card.mv-land{transition:none;animation:none}}

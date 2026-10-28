@@ -32,6 +32,25 @@ const drivers=()=>[...new Set(db.moves.map(m=>m.driver).filter(Boolean))].sort(C
 const semis=()=>[...new Set([...db.units.filter(u=>u.type==='semi'&&!u.retired).map(u=>u.num),...db.moves.map(m=>m.hauledBy).filter(Boolean)])].sort(Combo.numCmp);
 let tab='fleet',ff={q:'',type:'',loc:'',ret:false},lf={unit:'',from:'',to:'',st:'all'};
 const done=m=>m.status==='completed',pendN=ms=>ms.filter(m=>!done(m)).length;
+/* order: PENDING first, then COMPLETED; newest move date/time first inside each group */
+const sortMoves=ms=>ms.slice().sort((a,b)=>(done(a)-done(b))||String(b.at).localeCompare(String(a.at))||String(b.id).localeCompare(String(a.id)));
+/* list html: cards in sorted order, with a quiet 'Pending (N)' / 'Completed (N)' heading per group */
+function moveList(ms,heads=true){ms=sortMoves(ms);if(!heads)return ms.map(moveCard).join('');const p=ms.filter(m=>!done(m)),c=ms.filter(done);
+ return (p.length?`<div class="grp grp-pend">Pending (${p.length})</div>`+p.map(moveCard).join(''):'')+(c.length?`<div class="grp grp-done">Completed (${c.length})</div>`+c.map(moveCard).join(''):'')}
+/* run a re-render after a status change: keep scroll where it is and slide the other cards into place */
+function flipRender(run,movedId){const y=scrollY,vh=innerHeight,first={};
+ document.querySelectorAll('[data-mid]').forEach(c=>first[c.dataset.mid]=c.getBoundingClientRect().top);
+ run();if(Math.abs(scrollY-y)>0)scrollTo(0,y);
+ if(matchMedia('(prefers-reduced-motion: reduce)').matches)return;
+ document.querySelectorAll('[data-mid]').forEach(c=>{const id=c.dataset.mid,t=c.getBoundingClientRect().top;
+  if(id===movedId){c.classList.add('mv-land');return}
+  const o=first[id];if(o==null)return;const d=o-t;if(Math.abs(d)<2||(o<-200&&t<-200)||(o>vh+200&&t>vh+200))return;
+  c.style.transition='none';c.style.transform=`translateY(${d}px)`;
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{c.style.transition='transform .3s ease';c.style.transform='';setTimeout(()=>{c.style.transition=''},350)}))})}
+/* change a move's status: save now, fade the card out, then re-render in the new order */
+function changeStatus(btn,apply,after){const card=btn.closest('[data-mid]'),id=card.dataset.mid;if(card.dataset.busy)return;card.dataset.busy=1;apply();
+ const go=()=>{if(!document.contains(card))return;flipRender(after,id)};
+ if(matchMedia('(prefers-reduced-motion: reduce)').matches)go();else{card.classList.add('mv-out');setTimeout(go,170)}}
 function pendBadge(){const b=document.querySelector('nav [data-tab=log]');if(!b)return;let c=b.querySelector('.pc');if(!c){c=document.createElement('b');c.className='pc';b.append(c)}const n=pendN(db.moves);c.textContent=n;c.hidden=!n;c.title=n+' pending move(s)'}
 document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>go(b.dataset.tab));
 function go(t,arg){curArg=undefined;if((t==='users')&&!Sync.isAdmin())t='fleet';tab=t;document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.tab===t));render(arg);scrollTo(0,0)}
@@ -46,12 +65,12 @@ function list(){const q=ff.q.toLowerCase();const us=db.units.filter(u=>(ff.ret||
  .sort((a,b)=>a.num.localeCompare(b.num,undefined,{numeric:true}));
  $('#list').innerHTML=`<div class="s" style="margin:8px 0">${us.length} unit(s)</div>`+us.map(u=>{const m=lastMove(u.id);return `<div class="card tap" data-id="${u.id}"><div class="m"><span class="u">${esc(u.num)}</span><span class="tag">${u.type}</span>${u.sample?'<span class="tag sample">SAMPLE</span>':''}${u.retired?'<span class="tag ret">RETIRED</span>':''}<div class="s">${esc(u.desc)}</div></div><div class="loc">${esc(u.loc||'—')}<div class="s">Last move: ${m?fmt(m.at):'—'}</div></div></div>`}).join('')||'<p>No units. Tap "+ Unit" or import on the Data tab.</p>';
  document.querySelectorAll('#list .card').forEach(c=>c.onclick=()=>go('unit',c.dataset.id))}
-function rUnit(id){const u=unit(id);if(!u)return go('fleet');const ms=db.moves.filter(m=>m.unitId===id).sort((a,b)=>b.at.localeCompare(a.at));
+function rUnit(id){const u=unit(id);if(!u)return go('fleet');const ms=sortMoves(db.moves.filter(m=>m.unitId===id));
  app.innerHTML=`<button class="sec" id="back">‹ Fleet</button><h2>${esc(u.num)} <span class="tag">${u.type}</span>${u.retired?'<span class="tag ret">RETIRED</span>':''}</h2>
 <div class="s">${esc(u.desc)}</div><p>Current location: <b>${esc(u.loc||'—')}</b>${db.locations.some(l=>l.name===u.loc&&l.dealer)?' <span class="tag sample">DEALER/REPAIR</span>':''}</p>
 <dl class="facts">${EXTRA.filter(([k])=>u[k]).map(([k,l])=>`<dt>${l}</dt><dd>${esc(u[k])}</dd>`).join('')}</dl>
 <div class="row"><button id="mv">Log move</button><button class="sec" id="ed">Edit</button><button class="${u.retired?'sec':'danger'}" id="rt">${u.retired?'Un-retire':'Retire'}</button></div>
-<h2 style="margin-top:24px">Move history (${ms.length})${pendN(ms)?` <span class="badge pend">${pendN(ms)} pending</span>`:''}</h2>${ms.map(moveCard).join('')||'<p class="s">No moves yet.</p>'}`;
+<h2 style="margin-top:24px">Move history (${ms.length})${pendN(ms)?` <span class="badge pend">${pendN(ms)} pending</span>`:''}</h2>${moveList(ms)||'<p class="s">No moves yet.</p>'}`;
  $('#back').onclick=()=>go('fleet');$('#mv').onclick=()=>go('move',id);$('#ed').onclick=()=>editUnit(u);
  $('#rt').onclick=()=>{if(!u.retired&&!confirm('Retire '+u.num+'? History is kept.'))return;u.retired=!u.retired;save();render(id)};bindMoveCards(()=>render(id))}
 function editUnit(u){const n=!u;u=u||{type:'crane',loc:''};
@@ -98,14 +117,14 @@ function editMove(m,after){
   Object.assign(m,{unitId:u.id,unitNum:u.num,from:ensureLoc($('#ef').value),to,at:new Date($('#ed2').value||m.at).toISOString(),hauledBy:$('#eh').value.trim(),driver:$('#edr').value.trim(),note:$('#en').value.trim()});
   delete m.sample;relocate(old);relocate(u.id);save();d.close();after();toast('Move updated')}}
 function bindMoveCards(after){const mv=b=>db.moves.find(x=>x.id===b.closest('[data-mid]').dataset.mid);
- document.querySelectorAll('[data-mid] .mdone').forEach(b=>b.onclick=e=>{e.stopPropagation();const m=mv(b);Object.assign(m,{status:'completed',completedAt:new Date().toISOString(),completedBy:who()});save();after();toast(m.unitNum+' marked completed')});
- document.querySelectorAll('[data-mid] .mundo').forEach(b=>b.onclick=e=>{e.stopPropagation();const m=mv(b);if(!confirm(`Undo completion of ${m.unitNum} → ${m.to}? It will show as Pending again.`))return;m.status='pending';delete m.completedAt;delete m.completedBy;save();after();toast('Marked pending')});
+ document.querySelectorAll('[data-mid] .mdone').forEach(b=>b.onclick=e=>{e.stopPropagation();const m=mv(b);changeStatus(b,()=>{Object.assign(m,{status:'completed',completedAt:new Date().toISOString(),completedBy:who()});save();toast(m.unitNum+' marked completed')},after)});
+ document.querySelectorAll('[data-mid] .mundo').forEach(b=>b.onclick=e=>{e.stopPropagation();const m=mv(b);if(!confirm(`Undo completion of ${m.unitNum} → ${m.to}? It will show as Pending again.`))return;changeStatus(b,()=>{m.status='pending';delete m.completedAt;delete m.completedBy;save();toast('Marked pending')},after)});
  document.querySelectorAll('[data-mid] .edm').forEach(b=>b.onclick=e=>{e.stopPropagation();editMove(db.moves.find(x=>x.id===b.closest('[data-mid]').dataset.mid),after)});document.querySelectorAll('[data-mid] .del').forEach(b=>b.onclick=e=>{e.stopPropagation();const id=b.closest('[data-mid]').dataset.mid;const m=db.moves.find(x=>x.id===id);
  if(!confirm('Delete this move?'))return;db.moves=db.moves.filter(x=>x.id!==id);const u=unit(m.unitId),lm=u&&lastMove(u.id);if(u&&lm)u.loc=lm.to;else if(u&&m.from)u.loc=m.from;save();after()})}
 /* LOG */
-function filteredMoves(){return db.moves.filter(m=>(!lf.unit||m.unitNum.toLowerCase().includes(lf.unit.toLowerCase()))&&(!lf.from||m.at>=new Date(lf.from+'T00:00').toISOString())&&(!lf.to||m.at<=new Date(lf.to+'T23:59:59').toISOString())&&(lf.st==='all'||(lf.st==='completed')===done(m))).sort((a,b)=>b.at.localeCompare(a.at))}
+function filteredMoves(){const r=db.moves.filter(m=>(!lf.unit||m.unitNum.toLowerCase().includes(lf.unit.toLowerCase()))&&(!lf.from||m.at>=new Date(lf.from+'T00:00').toISOString())&&(!lf.to||m.at<=new Date(lf.to+'T23:59:59').toISOString())&&(lf.st==='all'||(lf.st==='completed')===done(m)));return sortMoves(r)}
 function rLog(){app.innerHTML=`<div class="bar"><input id="lu" type="search" placeholder="Filter by unit #" value="${esc(lf.unit)}"><input id="lfrom" type="date" value="${lf.from}"><input id="lto" type="date" value="${lf.to}"><button id="lx">Export CSV</button></div><div class="seg" id="lst" role="tablist"></div><div id="ll"></div>`;
- const f=()=>{const all=db.moves.length,p=pendN(db.moves);$('#lst').innerHTML=[['pending','Pending',p],['completed','Completed',all-p],['all','All',all]].map(([v,l,n])=>`<button data-st="${v}" class="${lf.st===v?'on':''} st-${v}">${l} <b>${n}</b></button>`).join('');$('#lst').querySelectorAll('button').forEach(b=>b.onclick=()=>{lf.st=b.dataset.st;f()});pendBadge();const ms=filteredMoves();$('#ll').innerHTML=`<div class="s" style="margin:8px 0">${ms.length} move(s)</div>`+ms.map(moveCard).join('');bindMoveCards(f)};
+ const f=()=>{const all=db.moves.length,p=pendN(db.moves);$('#lst').innerHTML=[['pending','Pending',p],['completed','Completed',all-p],['all','All',all]].map(([v,l,n])=>`<button data-st="${v}" class="${lf.st===v?'on':''} st-${v}">${l} <b>${n}</b></button>`).join('');$('#lst').querySelectorAll('button').forEach(b=>b.onclick=()=>{lf.st=b.dataset.st;f()});pendBadge();const ms=filteredMoves();$('#ll').innerHTML=`<div class="s" style="margin:8px 0">${ms.length} move(s)</div>`+moveList(ms,lf.st==='all');bindMoveCards(f)};
  Combo.attach($('#lu'),()=>[...new Set([...db.units.map(u=>u.num),...db.moves.map(m=>m.unitNum)])].sort(Combo.numCmp));
  $('#lu').oninput=e=>{lf.unit=e.target.value;f()};$('#lfrom').onchange=e=>{lf.from=e.target.value;f()};$('#lto').onchange=e=>{lf.to=e.target.value;f()};$('#lx').onclick=()=>exportMoves(filteredMoves());f()}
 /* DATA */
@@ -157,7 +176,7 @@ ${db.locations.slice().sort((a,b)=>(!!a.archived-!!b.archived)||a.name.localeCom
    if(ex){Object.assign(ex,{type:type?o.type:ex.type,desc:desc||ex.desc,loc:o.loc||ex.loc});delete ex.sample;up++}else{db.units.push({id:uid(),...o,retired:false});a++}});
   save();toast(`Imported: ${a} added, ${up} updated`);render()};
  $('#doImp').onclick=()=>runImp($('#imp').value);$('#impF').onchange=e=>e.target.files[0]&&e.target.files[0].text().then(runImp);
- $('#xm').onclick=()=>exportMoves(db.moves.slice().sort((a,b)=>b.at.localeCompare(a.at)));$('#xu').onclick=exportUnits;$('#sout').onclick=()=>Sync.signOut();$('#snow').onclick=()=>Sync.run();
+ $('#xm').onclick=()=>exportMoves(sortMoves(db.moves));$('#xu').onclick=exportUnits;$('#sout').onclick=()=>Sync.signOut();$('#snow').onclick=()=>Sync.run();
  $('#cpw').onclick=async()=>{const p=prompt('New password (8+ characters)');if(!p)return;const {error}=await Sync.sb.auth.updateUser({password:p});alert(error?'Failed: '+error.message:'Password changed')};
  $('#lm').onclick=async()=>{try{const r=mergeMaster(await fetchMaster());toast(`Master list: ${r.a} added, ${r.u} updated`);render()}catch(e){alert('Could not load master list: '+e.message)}};
  $('#bk').onclick=()=>download(`fleet-backup-${stamp()}.json`,JSON.stringify({app:'fleet-tracker',version:1,exported:new Date().toISOString(),...db},null,1),'application/json');
